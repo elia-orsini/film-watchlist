@@ -4,6 +4,9 @@ import { useState, useEffect } from "react";
 import SearchBar from "@/components/SearchBar";
 import SearchResultItem from "@/components/SearchResultItem";
 import PosterCard from "@/components/PosterCard";
+import PosterSelectorModal from "@/components/PosterSelectorModal";
+import ConfirmModal from "@/components/ConfirmModal";
+import PasswordModal from "@/components/PasswordModal";
 import { TMDBMovieWithDirector } from "@/lib/tmdb";
 
 interface WatchlistFilm {
@@ -31,10 +34,27 @@ export default function Home() {
     new Set()
   );
   const [addingFilms, setAddingFilms] = useState<Set<number>>(new Set());
+  const [posterSelectorOpen, setPosterSelectorOpen] = useState<{
+    tmdbId: number;
+    title: string;
+    currentPosterPath: string | null;
+  } | null>(null);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState<{
+    tmdbId: number;
+    title: string;
+  } | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
 
-  // Load watchlist on mount
+  // Load watchlist on mount and check edit mode from localStorage
   useEffect(() => {
     loadWatchlist();
+    // Check if edit mode is stored in localStorage
+    const storedEditMode = localStorage.getItem("editModeUnlocked");
+    if (storedEditMode === "true") {
+      setIsEditMode(true);
+    }
   }, []);
 
   const loadWatchlist = async () => {
@@ -88,6 +108,7 @@ export default function Home() {
   };
 
   const handleAddToWatchlist = async (film: TMDBMovieWithDirector) => {
+    // Note: Adding to watchlist is always allowed, regardless of edit mode
     // Optimistic update - immediately update UI
     setOptimisticWatchlist((prev) => new Set(prev).add(film.id));
     setAddingFilms((prev) => new Set(prev).add(film.id));
@@ -127,7 +148,18 @@ export default function Home() {
     }
   };
 
-  const handleRemoveFromWatchlist = async (tmdbId: number) => {
+  const handleRemoveFromWatchlist = (film: WatchlistFilm) => {
+    if (!isEditMode) return;
+    setRemoveConfirmOpen({
+      tmdbId: film.tmdb_id,
+      title: film.title,
+    });
+  };
+
+  const confirmRemoveFromWatchlist = async () => {
+    if (!removeConfirmOpen) return;
+
+    const { tmdbId } = removeConfirmOpen;
     try {
       const response = await fetch(`/api/watchlist?tmdbId=${tmdbId}`, {
         method: "DELETE",
@@ -138,10 +170,13 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Failed to remove from watchlist:", error);
+    } finally {
+      setRemoveConfirmOpen(null);
     }
   };
 
   const handleToggleWatched = async (tmdbId: number) => {
+    if (!isEditMode) return;
     // Optimistic update - immediately update UI
     setWatchlist((prev) =>
       prev.map((film) =>
@@ -184,30 +219,146 @@ export default function Home() {
     );
   };
 
+  const handleChangePoster = (film: WatchlistFilm) => {
+    if (!isEditMode) return;
+    setPosterSelectorOpen({
+      tmdbId: film.tmdb_id,
+      title: film.title,
+      currentPosterPath: film.poster_path,
+    });
+  };
+
+  const handlePasswordSubmit = async (password: string) => {
+    try {
+      const response = await fetch("/api/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setIsEditMode(true);
+        localStorage.setItem("editModeUnlocked", "true");
+        setPasswordModalOpen(false);
+        setPasswordError("");
+      } else {
+        setPasswordError(data.error || "Incorrect password");
+      }
+    } catch (error) {
+      console.error("Failed to verify password:", error);
+      setPasswordError("Failed to verify password");
+    }
+  };
+
+  const handleLock = () => {
+    setIsEditMode(false);
+    localStorage.removeItem("editModeUnlocked");
+  };
+
+  const handleSelectPoster = async (posterPath: string) => {
+    if (!posterSelectorOpen) return;
+
+    const tmdbId = posterSelectorOpen.tmdbId;
+
+    // Optimistic update - immediately update UI
+    setWatchlist((prev) =>
+      prev.map((film) =>
+        film.tmdb_id === tmdbId ? { ...film, poster_path: posterPath } : film
+      )
+    );
+
+    try {
+      const response = await fetch("/api/watchlist", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tmdbId, posterPath }),
+      });
+
+      if (!response.ok) {
+        // Reload watchlist to revert optimistic update on error
+        await loadWatchlist();
+        console.error("Failed to update poster");
+      }
+    } catch (error) {
+      console.error("Failed to update poster:", error);
+      // Reload watchlist to revert optimistic update on error
+      await loadWatchlist();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0d0d0d] text-zinc-100">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <div className="container mx-auto px-4 py-4 max-w-7xl">
         {/* Tabs */}
-        <div className="flex gap-4 mb-6 border-b border-zinc-800">
+        <div className="flex gap-4 mb-6 border-b border-zinc-800 items-center justify-between">
+          <div className="flex gap-4">
+            <button
+              onClick={() => setActiveTab("search")}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === "search"
+                  ? "text-white border-b-2 border-white"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Search
+            </button>
+            <button
+              onClick={() => setActiveTab("watchlist")}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === "watchlist"
+                  ? "text-white border-b-2 border-white"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Watchlist
+            </button>
+          </div>
           <button
-            onClick={() => setActiveTab("search")}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === "search"
-                ? "text-white border-b-2 border-white"
-                : "text-zinc-400 hover:text-zinc-200"
+            onClick={isEditMode ? handleLock : () => setPasswordModalOpen(true)}
+            className={`p-2 rounded-md transition-colors flex items-center justify-center ${
+              isEditMode
+                ? "bg-zinc-900 hover:bg-zinc-800 text-white"
+                : "bg-zinc-900 hover:bg-zinc-800 text-white"
             }`}
+            title={isEditMode ? "Lock edit mode" : "Unlock edit mode"}
           >
-            Search
-          </button>
-          <button
-            onClick={() => setActiveTab("watchlist")}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === "watchlist"
-                ? "text-white border-b-2 border-white"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Watchlist ({watchlist.length + optimisticWatchlist.size})
+            {isEditMode ? (
+              <>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="text-sm ml-1">unlocked</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+                <span className="text-sm ml-1">locked</span>
+              </>
+            )}
           </button>
         </div>
 
@@ -232,7 +383,9 @@ export default function Home() {
                     film={film}
                     isInWatchlist={isInWatchlist(film.id)}
                     isAdding={addingFilms.has(film.id)}
-                    onAdd={() => handleAddToWatchlist(film)}
+                    onAdd={
+                      isEditMode ? () => handleAddToWatchlist(film) : undefined
+                    }
                   />
                 ))}
               </ul>
@@ -261,14 +414,26 @@ export default function Home() {
             ) : watchlist.length > 0 ? (
               <>
                 <div>
-                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-4 sm:gap-5 list-none p-0 m-0">
+                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2 list-none p-0 m-0">
                     {watchlist.map((film) => (
                       <PosterCard
                         key={film.id}
                         film={film}
-                        onRemove={() => handleRemoveFromWatchlist(film.tmdb_id)}
-                        onToggleWatched={() =>
-                          handleToggleWatched(film.tmdb_id)
+                        isEditMode={isEditMode}
+                        onRemove={
+                          isEditMode
+                            ? () => handleRemoveFromWatchlist(film)
+                            : undefined
+                        }
+                        onToggleWatched={
+                          isEditMode
+                            ? () => handleToggleWatched(film.tmdb_id)
+                            : undefined
+                        }
+                        onChangePoster={
+                          isEditMode
+                            ? () => handleChangePoster(film)
+                            : undefined
                         }
                       />
                     ))}
@@ -289,6 +454,42 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Poster Selector Modal */}
+      {posterSelectorOpen && (
+        <PosterSelectorModal
+          isOpen={true}
+          onClose={() => setPosterSelectorOpen(null)}
+          tmdbId={posterSelectorOpen.tmdbId}
+          title={posterSelectorOpen.title}
+          currentPosterPath={posterSelectorOpen.currentPosterPath}
+          onSelectPoster={handleSelectPoster}
+        />
+      )}
+
+      {/* Remove Confirmation Modal */}
+      {removeConfirmOpen && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setRemoveConfirmOpen(null)}
+          onConfirm={confirmRemoveFromWatchlist}
+          title="Remove from Watchlist"
+          message={`Are you sure you want to remove "${removeConfirmOpen.title}" from your watchlist?`}
+          confirmText="Remove"
+          cancelText="Cancel"
+        />
+      )}
+
+      {/* Password Modal */}
+      <PasswordModal
+        isOpen={passwordModalOpen}
+        onClose={() => {
+          setPasswordModalOpen(false);
+          setPasswordError("");
+        }}
+        onConfirm={handlePasswordSubmit}
+        error={passwordError}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getWatchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, toggleWatched } from '@/lib/db';
+import { getWatchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, toggleWatched, updatePosterPath } from '@/lib/db';
 import { getMovieDetails } from '@/lib/tmdb';
 
 export async function GET() {
@@ -74,7 +74,7 @@ export async function DELETE(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { tmdbId } = await request.json();
+    const { tmdbId, posterPath } = await request.json();
 
     if (!tmdbId) {
       return NextResponse.json({ error: 'tmdbId is required' }, { status: 400 });
@@ -86,14 +86,19 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Film not found in watchlist' }, { status: 404 });
     }
 
-    // Toggle watched status
-    await toggleWatched(tmdbId);
-
-    return NextResponse.json({ message: 'Watched status updated' }, { status: 200 });
+    // If posterPath is provided, update poster; otherwise toggle watched status
+    if (posterPath !== undefined) {
+      await updatePosterPath(tmdbId, posterPath);
+      return NextResponse.json({ message: 'Poster updated' }, { status: 200 });
+    } else {
+      // Toggle watched status
+      await toggleWatched(tmdbId);
+      return NextResponse.json({ message: 'Watched status updated' }, { status: 200 });
+    }
   } catch (error) {
-    console.error('Update watched status error:', error);
+    console.error('Update error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to update watched status' },
+      { error: error instanceof Error ? error.message : 'Failed to update' },
       { status: 500 }
     );
   }

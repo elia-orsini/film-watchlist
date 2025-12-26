@@ -165,3 +165,17 @@ export async function isInWatchlist(tmdbId: number): Promise<boolean> {
     throw error;
   }
 }
+
+export async function updatePosterPath(tmdbId: number, posterPath: string | null) {
+  try {
+    const db = getSql();
+    await db`
+      UPDATE films 
+      SET poster_path = ${posterPath} 
+      WHERE tmdb_id = ${tmdbId}
+    `;
+  } catch (error) {
+    console.error("Error updating poster path:", error);
+    throw error;
+  }
+}

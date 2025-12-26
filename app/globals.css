@@ -15,5 +15,5 @@
 body {
   background: #0d0d0d;
   color: #ededed;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-mono), 'Courier New', monospace;
 }

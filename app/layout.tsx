@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Film Watchlist",
   description: "Search and save movies to your watchlist using TMDB",
+  icons: {
+    icon: "/brando.jpg",
+  },
 };
 
 export default function RootLayout({
